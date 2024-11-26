@@ -8,6 +8,32 @@ Param(
     [switch] $TestMode  # -t or -T for test mode
 )
 
+# Resolve the logged-on user's temp directory
+function Get-LoggedOnUserTemp {
+    try {
+        # Get the currently logged-on user's username
+        $LoggedOnUser = Get-WmiObject -Query "SELECT * FROM Win32_ComputerSystem" | Select-Object -ExpandProperty UserName
+        if ($LoggedOnUser -and $LoggedOnUser -match "\\") {
+            $UserName = $LoggedOnUser.Split("\")[-1]
+            $UserProfilePath = Join-Path -Path "C:\Users" -ChildPath $UserName
+            $TempPath = Join-Path -Path $UserProfilePath -ChildPath "AppData\Local\Temp"
+            return $TempPath
+        } else {
+            throw "No logged-on user found."
+        }
+    } catch {
+        Write-Host "Error resolving logged-on user's temp directory: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Start logging the session to a file {
+    $LogFilePath = "C:\Users\$LoggedOnUser\RenameComputer.log"
+    Start-Transcript -Path $LogFilePath -Append
+} else {
+    Write-Host "Unable to resolve logged-on user's temp directory. Transcript not started."
+}
+
 # Print initial information about the script version and credits
 Write-Host "RenameComputer v1.4"
 Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
