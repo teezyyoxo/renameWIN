@@ -7,22 +7,49 @@ Param(
     [Parameter(Mandatory = $False)] [string] $Prefix = "",
     [switch] $TestMode  # -t or -T for test mode
 )
+# Function to log and exit
+function Log-Exit {
+    param([string]$message, [int]$exitCode = 0)
+    Write-Host $message
+    Stop-Transcript
+    Exit $exitCode
+}
 
-# Resolve the logged-on user's temp directory
+# Print initial information about the script version and credits
+Write-Host ""
+Write-Host "RenameComputer v1.4"
+Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
+Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
+Write-Host ""
+Write-Host "Script is running as: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+Write-Host ""
+
+# Resolve the logged-on user's temp directory, default to C:\Windows\Temp if needed/no user detected
 function Get-LoggedOnUserTemp {
     try {
-        # Get the currently logged-on user's username
-        $LoggedOnUser = Get-WmiObject -Query "SELECT * FROM Win32_ComputerSystem" | Select-Object -ExpandProperty UserName
+        # Try to get the logged-on user from WMI
+        $LoggedOnUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
         if ($LoggedOnUser -and $LoggedOnUser -match "\\") {
-            return $LoggedOnUser.Split("\")[-1]
+            $UserName = $LoggedOnUser.Split("\")[-1]
+            $UserProfilePath = Join-Path -Path "C:\Users" -ChildPath $UserName
+            $TempPath = Join-Path -Path $UserProfilePath -ChildPath "AppData\Local\Temp"
+            if (Test-Path $TempPath) {
+                return $TempPath
+            } else {
+                throw "Temp path does not exist for user: $UserName"
+            }
         } else {
-            throw "No logged-on user found."
+            # No logged-on user found, so fall back to C:\Windows\Temp
+            Write-Warning "No logged-on user found, using SYSTEM temp directory."
+            return "C:\Windows\Temp"
         }
     } catch {
-        Write-Host "Error resolving logged-on user's temp directory: $($_.Exception.Message)"
-        return $null
+        Write-Warning "Error resolving logged-on user's temp directory: $($_.Exception.Message)"
+        return "C:\Windows\Temp"
     }
 }
+
+
 
 # Get the logged-on user and their Temp directory
 $LoggedOnUser = Get-LoggedOnUserTemp
@@ -37,10 +64,6 @@ if ($LoggedOnUser) {
     Write-Host "Unable to resolve logged-on user's temp directory. Transcript not started."
 }
 
-# Print initial information about the script version and credits
-Write-Host "RenameComputer v1.4"
-Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
-Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
 
 # Create a tag file just so Intune knows this was installed
 try {
@@ -120,27 +143,33 @@ if ($isAD) {
 # If we're good to go, rename the computer
 if ($TestMode) {
     Write-Host "Test Mode: The computer would be renamed but no changes will be made."
-    Write-Verbose "Would rename computer to: $newName"
+    Write-Host "Would rename computer to: $newName"  # This will print the new name that will be used.
 } else {
     try {
         # Remove existing scheduled task if it exists
         Disable-ScheduledTask -TaskName "RenameComputer" -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName "RenameComputer" -Confirm:$false -ErrorAction SilentlyContinue
 
-        $systemEnclosure = Get-CimInstance -ClassName Win32_SystemEnclosure
-        if ($null -eq $systemEnclosure.SMBIOSAssetTag) {
-            $assetTag = $details.BiosSerialNumber
-        } else {
-            $assetTag = $systemEnclosure.SMBIOSAssetTag
+        # Get the serial number from Win32_Bios
+        $serialNumber = (Get-WmiObject -Class Win32_Bios | Select-Object -Last 1).SerialNumber
+
+        # Check if the serial number exists and is valid
+        if (-not $serialNumber) {
+            Log-Exit "Error: No serial number found." 1
         }
 
-        if ($assetTag.Length -gt 13) {
-            $assetTag = $assetTag.Substring(0, 13)
+        # Ensure the serial number is within valid length (not too long)
+        if ($serialNumber.Length -gt 13) {
+            $serialNumber = $serialNumber.Substring(0, 13)
         }
 
-        $newName = if ($details.CsPCSystemTypeEx -eq 1) { "D-$assetTag" } else { "L-$assetTag" }
+        # Construct the new name based on the serial number
+        $newName = "$serialNumber"  # Assuming the device is a desktop; adjust for laptop if needed
+        Write-Host "The new computer name will be: $newName"
 
-        if ($newName -ieq $details.CsName) {
+        # Check if the new name is the same as the current name
+        $currentName = (Get-ComputerInfo).CsName
+        if ($newName -ieq $currentName) {
             Log-Exit "No need to rename computer, name is already set to $newName" 0
         }
 
@@ -148,14 +177,10 @@ if ($TestMode) {
         Rename-Computer -NewName $newName -Force
         if ($TestMode) { Write-Verbose "Successfully renamed computer to $newName" }
 
-        if ($details.CsUserName -match "defaultUser") {
-            Write-Host "Exiting during ESP/OOBE with return code 1641"
-            Log-Exit "Exiting during ESP/OOBE with return code 1641" 1641
-        } else {
-            Write-Host "Initiating a restart in 10 minutes."
-            & shutdown.exe /g /t 600 /f /c "Restarting the computer due to a computer name change.  Save your work."
-            Log-Exit "Restart initiated." 0
-        }
+        # Restart if necessary
+        Write-Host "Initiating a restart in 10 minutes."
+        & shutdown.exe /g /t 600 /f /c "Restarting the computer due to a computer name change. Save your work."
+        Log-Exit "Restart initiated." 0
     } catch {
         Log-Exit "Error: Failed to rename the computer." 1
     }
@@ -186,10 +211,4 @@ if (-not $TestMode) {
     }
 }
 
-# Function to log and exit
-function Log-Exit {
-    param([string]$message, [int]$exitCode = 0)
-    Write-Host $message
-    Stop-Transcript
-    Exit $exitCode
-}
+Stop-Transcript
