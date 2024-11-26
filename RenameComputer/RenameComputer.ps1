@@ -27,11 +27,16 @@ function Get-LoggedOnUserTemp {
     }
 }
 
-# Start logging the session to a file
-{
+# Get the logged-on user and their Temp directory
+$LoggedOnUser = Get-LoggedOnUserTemp
+
+# Ensure the logged-on user is found and proceed with the transcript
+if ($LoggedOnUser) {
+    # Start logging the session to a file
     $LogFilePath = "C:\Users\$LoggedOnUser\RenameComputer.log"
     Start-Transcript -Path $LogFilePath -Append
 } else {
+    # If no logged-on user is found, display a message and don't start the transcript
     Write-Host "Unable to resolve logged-on user's temp directory. Transcript not started."
 }
 
