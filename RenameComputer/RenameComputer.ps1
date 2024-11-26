@@ -14,10 +14,7 @@ function Get-LoggedOnUserTemp {
         # Get the currently logged-on user's username
         $LoggedOnUser = Get-WmiObject -Query "SELECT * FROM Win32_ComputerSystem" | Select-Object -ExpandProperty UserName
         if ($LoggedOnUser -and $LoggedOnUser -match "\\") {
-            $UserName = $LoggedOnUser.Split("\")[-1]
-            $UserProfilePath = Join-Path -Path "C:\Users" -ChildPath $UserName
-            $TempPath = Join-Path -Path $UserProfilePath -ChildPath "AppData\Local\Temp"
-            return $TempPath
+            return $LoggedOnUser.Split("\")[-1]
         } else {
             throw "No logged-on user found."
         }
@@ -33,7 +30,7 @@ $LoggedOnUser = Get-LoggedOnUserTemp
 # Ensure the logged-on user is found and proceed with the transcript
 if ($LoggedOnUser) {
     # Start logging the session to a file
-    $LogFilePath = "C:\Users\$LoggedOnUser\RenameComputer.log"
+    $LogFilePath = "C:\Users\$LoggedOnUser\AppData\Local\Temp\RenameComputer.log"
     Start-Transcript -Path $LogFilePath -Append
 } else {
     # If no logged-on user is found, display a message and don't start the transcript
@@ -44,14 +41,6 @@ if ($LoggedOnUser) {
 Write-Host "RenameComputer v1.4"
 Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
 Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
-
-# Function to log and exit
-function Log-Exit {
-    param([string]$message, [int]$exitCode = 0)
-    Write-Host $message
-    Stop-Transcript
-    Exit $exitCode
-}
 
 # Create a tag file just so Intune knows this was installed
 try {
@@ -197,4 +186,10 @@ if (-not $TestMode) {
     }
 }
 
-Stop-Transcript
+# Function to log and exit
+function Log-Exit {
+    param([string]$message, [int]$exitCode = 0)
+    Write-Host $message
+    Stop-Transcript
+    Exit $exitCode
+}
