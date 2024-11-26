@@ -27,7 +27,8 @@ function Get-LoggedOnUserTemp {
     }
 }
 
-# Start logging the session to a file {
+# Start logging the session to a file
+{
     $LogFilePath = "C:\Users\$LoggedOnUser\RenameComputer.log"
     Start-Transcript -Path $LogFilePath -Append
 } else {
