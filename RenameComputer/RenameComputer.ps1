@@ -21,18 +21,6 @@ function Log-Exit {
     Exit $exitCode
 }
 
-# If we are running as a 32-bit process on an x64 system, re-launch as a 64-bit process
-if ("$env:PROCESSOR_ARCHITEW6432" -ne "ARM64") {
-    try {
-        if (Test-Path "$($env:WINDIR)\SysNative\WindowsPowerShell\v1.0\powershell.exe") {
-            & "$($env:WINDIR)\SysNative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy bypass -File "$PSCommandPath" -Prefix $Prefix -TestMode:$TestMode
-            Exit $lastexitcode
-        }
-    } catch {
-        Log-Exit "Error: Failed to launch as 64-bit process." 1
-    }
-}
-
 # Create a tag file just so Intune knows this was installed
 try {
     if (-not (Test-Path "$($env:ProgramData)\Microsoft\RenameComputer")) {
