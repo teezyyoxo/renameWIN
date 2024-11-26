@@ -1,8 +1,3 @@
-# Print initial information about the script version and credits
-Write-Host "RenameComputer v1.4"
-Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
-Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
-
 # This script will automatically rename an AD/AAD-bound Windows computer to the machine's serial number based on the following command:
 # "(Get-WmiObject -Class Win32_Bios | Select-Object -Last 1).SerialNumber" <-- this will print ONLY the serial number.
 
@@ -12,6 +7,11 @@ Param(
     [Parameter(Mandatory = $False)] [string] $Prefix = "",
     [switch] $TestMode  # -t or -T for test mode
 )
+
+# Print initial information about the script version and credits
+Write-Host "RenameComputer v1.4"
+Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
+Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
 
 # Function to log and exit
 function Log-Exit {
