@@ -8,6 +8,16 @@ Param(
     [Alias("TestFlag")] [switch] $t # Renamed alias for Test Mode
 )
 
+# Combine TestMode flags (-t and -T)
+$TestMode = $TestMode -or $t
+Write-Host ""
+# Heads up - test mode!
+if ($TestMode) {
+    Write-Warning "***SCRIPT IS BEING EXECUTED IN TEST MODE.***"
+    Write-Warning "No changes will be applied."
+ } else {} # Carry on, my wayward son...
+Write-Host ""
+
 # Function to log and exit
 function Log-Exit {
     param([string]$message, [int]$exitCode = 0)
@@ -16,28 +26,14 @@ function Log-Exit {
     Exit $exitCode
 }
 
-# Function to retrieve the logged-on user's temp directory
-function Get-LoggedOnUserTemp {
-    try {
-        $LoggedOnUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
-        if ($LoggedOnUser -and $LoggedOnUser -match "\\") {
-            $UserName = $LoggedOnUser.Split("\")[-1]
-            $UserProfilePath = Join-Path -Path "C:\Users" -ChildPath $UserName
-            $TempPath = Join-Path -Path $UserProfilePath -ChildPath "AppData\Local\Temp"
-            if (Test-Path $TempPath) {
-                return $TempPath
-            } else {
-                throw "Temp path does not exist for user: $UserName"
-            }
-        } else {
-            Write-Warning "No logged-on user found, using SYSTEM temp directory."
-            return "C:\Windows\Temp"
-        }
-    } catch {
-        Write-Warning "Error resolving logged-on user's temp directory: $($_.Exception.Message)"
-        return "C:\Windows\Temp"
-    }
-}
+# Opening credits. Star Wars???
+Write-Host "winRename v1.6"
+Write-Host ""
+
+Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
+Write-Host "EXCELLENT write-up on it on his blog."
+Write-Host "https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
+Write-Host ""
 
 # Function to retrieve and validate the serial number
 function Get-SerialNumber {
@@ -47,7 +43,7 @@ function Get-SerialNumber {
         $isVirtualMachine = ($systemEnclosure.ChassisTypes -contains 3 -or
                              $systemEnclosure.ChassisTypes -contains 4)
         if ($isVirtualMachine) {
-            Write-Host "Virtual machine detected. Serial number retrieval may differ."
+            Write-Host "Virtual environment/architecture detected. Serial number retrieval may produce unexpected results."
         }
 
         # Get the serial number
@@ -69,26 +65,6 @@ function Get-SerialNumber {
     }
 }
 
-#THE FUN BEGINS!!!!!!!!!!!
-
-# Heads up - test mode!
-if ($TestMode) {
-    Write-Host "Script is being run in test mode."
-}
-
-# Opening credits. Star Wars???
-Write-Host ""
-Write-Host "RenameComputer v1.5"
-Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
-Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
-Write-Host ""
-Write-Host "Script is running as: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
-Write-Host ""
-
-
-# Combine TestMode flags (-t and -T)
-$TestMode = $TestMode -or $t
-
 # Resolve the logged-on user's temp directory and initialize transcript
 $LoggedOnUserTemp = Get-LoggedOnUserTemp
 try {
@@ -109,7 +85,7 @@ $tenantID = $null
 try {
     $details = Get-ComputerInfo
     if ($details.CsPartOfDomain) {
-        Write-Host "Device is joined to AD domain: $($details.CsDomain)"
+        Write-Host "Device is joined to Active Directory domain: $($details.CsDomain)"
         $isAD = $true
     } elseif (Test-Path "HKLM:/SYSTEM/CurrentControlSet/Control/CloudDomainJoin/JoinInfo") {
         $subKey = Get-Item "HKLM:/SYSTEM/CurrentControlSet/Control/CloudDomainJoin/JoinInfo"
@@ -127,6 +103,7 @@ try {
     Log-Exit "Error: Failed to detect AD or AAD domain membership. $_" 1
 }
 Write-Host ""
+
 # Resolve the serial number
 $serialNumber = Get-SerialNumber
 $newName = "$serialNumber"
@@ -135,17 +112,52 @@ $newName = "$serialNumber"
 if ($newName.Length -gt 63 -or $newName -match '^[0-9]+$') {
     Log-Exit "Error: Invalid computer name '$newName'. Ensure it follows naming rules." 1
 }
+
 Write-Host ""
+
 # Check if renaming is necessary
 $currentName = (Get-ComputerInfo).CsName
+
+# Print the current and corrected computer names
+Write-Host "Current Computer Name:"
+Write-Host "$currentName"
+Write-Host ""
+Write-Host "Corrected Computer Name:"
+Write-Host "$newName"
+Write-Host ""
+
 if ($newName -ieq $currentName) {
     Log-Exit "No need to rename computer, name is already set to $newName" 0
 }
 
 # Handle Test Mode
 if ($TestMode) {
-    Write-Host "Test Mode: The computer would be renamed to '$newName', but no changes will be made."
-    Log-Exit "Test mode complete." 0
+    Write-Host "***SCRIPT WAS RUN IN TEST MODE.***"
+    Write-Host "No changes have been applied."
+    Log-Exit "Exiting." 0
+}
+
+# Function to retrieve the logged-on user's temp directory
+function Get-LoggedOnUserTemp {
+    try {
+        $LoggedOnUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
+        if ($LoggedOnUser -and $LoggedOnUser -match "\\") {
+            $UserName = $LoggedOnUser.Split("\")[-1]
+            $UserProfilePath = Join-Path -Path "C:\Users" -ChildPath $UserName
+            $TempPath = Join-Path -Path $UserProfilePath -ChildPath "AppData\Local\Temp"
+            if (Test-Path $TempPath) {
+                return $TempPath
+            } else {
+                throw "Temp path does not exist for user: $UserName"
+            }
+        } else {
+            Write-Warning "Running script as SYSTEM user and thus using C:\Windows\Temp for logs."
+            return "C:\Windows\Temp"
+        }
+    } catch {
+        Write-Warning "Error resolving logged-on user's temp directory: $($_.Exception.Message)"
+        return "C:\Windows\Temp"
+    }
 }
 
 # Attempt to rename the computer
@@ -166,4 +178,5 @@ try {
 } catch {
     Log-Exit "Error: Failed to rename the computer. $_" 1
 }
+
 Write-Host ""
