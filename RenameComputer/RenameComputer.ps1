@@ -1,11 +1,11 @@
 # This script will automatically rename an AD/AAD-bound Windows computer to the machine's serial number based on the following command:
-# "(Get-WmiObject -Class Win32_Bios | Select-Object -Last 1).SerialNumber" <-- this will print ONLY the serial number.
+# MG ON 11/27/24 --> NEED TO PRETTIFY THE OUTPUTS AND ADD VERSIONING INFO (COMMENTED OUT)
 
-# Script starts
 [CmdletBinding()]
 Param(
     [Parameter(Mandatory = $False)] [string] $Prefix = "",
-    [switch] $TestMode  # -t or -T for test mode
+    [switch] $TestMode,  # -T for Test Mode
+    [Alias("TestFlag")] [switch] $t # Renamed alias for Test Mode
 )
 
 # Function to log and exit
@@ -16,44 +16,7 @@ function Log-Exit {
     Exit $exitCode
 }
 
-
-
-# Function to retrieve the serial number, with special handling for virtual machines
-function Get-SerialNumber {
-    try {
-        # Retrieve system enclosure information
-        $systemEnclosure = Get-CimInstance -ClassName Win32_SystemEnclosure
-
-        # Check if we are running on a virtual machine
-        $isVirtualMachine = ($systemEnclosure.ChassisTypes -contains 3 -or
-                             $systemEnclosure.ChassisTypes -contains 4)
-
-        if ($isVirtualMachine) {
-            Write-Host "Virtual machine detected."
-
-            # Handle virtual machines
-            $serialNumber = (Get-CimInstance -ClassName Win32_BIOS | Select-Object -ExpandProperty SerialNumber)
-            if ($serialNumber -eq $null -or $serialNumber -match '^[ ]*$') {
-                Write-Host "Unable to retrieve serial number for the virtual machine. Using fallback."
-                $serialNumber = "VM-NoSerial"
-            }
-        } else {
-            # Handle physical machines
-            $serialNumber = (Get-CimInstance -ClassName Win32_BIOS | Select-Object -ExpandProperty SerialNumber)
-            if ($serialNumber -eq $null -or $serialNumber -match '^[ ]*$') {
-                Write-Host "Unable to retrieve serial number for the physical machine."
-                $serialNumber = "Physical-NoSerial"
-            }
-        }
-
-        return $serialNumber
-    } catch {
-        Write-Host "Error: Failed to retrieve serial number: $($_.Exception.Message)"
-        return "Unknown-NoSerial"
-    }
-}
-
-# Resolve the logged-on user's temp directory, default to C:\Windows\Temp if needed/no user detected
+# Function to retrieve the logged-on user's temp directory
 function Get-LoggedOnUserTemp {
     try {
         $LoggedOnUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
@@ -76,49 +39,70 @@ function Get-LoggedOnUserTemp {
     }
 }
 
-# Get the logged-on user and their Temp directory
-$LoggedOnUser = Get-LoggedOnUserTemp
+# Function to retrieve and validate the serial number
+function Get-SerialNumber {
+    try {
+        # Detect if the system is a virtual machine
+        $systemEnclosure = Get-CimInstance -ClassName Win32_SystemEnclosure
+        $isVirtualMachine = ($systemEnclosure.ChassisTypes -contains 3 -or
+                             $systemEnclosure.ChassisTypes -contains 4)
+        if ($isVirtualMachine) {
+            Write-Host "Virtual machine detected. Serial number retrieval may differ."
+        }
 
-# Ensure the logged-on user is found and proceed with the transcript
-if ($LoggedOnUser) {
-    $LogFilePath = "C:\Users\$LoggedOnUser\AppData\Local\Temp\RenameComputer.log"
+        # Get the serial number
+        $serialNumber = (Get-CimInstance -ClassName Win32_BIOS | Select-Object -ExpandProperty SerialNumber)
+
+        # Fallback for invalid serial numbers
+        if ($serialNumber -eq $null -or $serialNumber -match '^[ ]*$') {
+            $serialNumber = "UnknownSerial"
+        }
+
+        # Replace spaces with hyphens and remove invalid characters
+        $serialNumber = $serialNumber -replace '[^a-zA-Z0-9-]', ''
+        $serialNumber = $serialNumber -replace ' ', '-'
+
+        return $serialNumber
+    } catch {
+        Write-Host "Error retrieving serial number: $($_.Exception.Message)"
+        return "InvalidSerial"
+    }
+}
+
+#THE FUN BEGINS!!!!!!!!!!!
+
+# Heads up - test mode!
+if ($TestMode) {
+    Write-Host "Script is being run in test mode."
+}
+
+# Opening credits. Star Wars???
+Write-Host ""
+Write-Host "RenameComputer v1.4"
+Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
+Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
+Write-Host ""
+Write-Host "Script is running as: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+Write-Host ""
+
+
+# Combine TestMode flags (-t and -T)
+$TestMode = $TestMode -or $t
+
+# Resolve the logged-on user's temp directory and initialize transcript
+$LoggedOnUserTemp = Get-LoggedOnUserTemp
+try {
+    $LogFilePath = "C:\Windows\Temp\RenameComputer.log"
+    if ($LoggedOnUserTemp -ne "C:\Windows\Temp") {
+        $LogFilePath = Join-Path -Path $LoggedOnUserTemp -ChildPath "RenameComputer.log"
+    }
     Start-Transcript -Path $LogFilePath -Append
-} else {
-    Write-Host "Unable to resolve logged-on user's temp directory. Transcript not started."
-}
-
-# Create a tag file just so Intune knows this was installed
-try {
-    if (-not (Test-Path "$($env:ProgramData)\Microsoft\RenameComputer")) {
-        Mkdir "$($env:ProgramData)\Microsoft\RenameComputer"
-    }
-    Set-Content -Path "$($env:ProgramData)\Microsoft\RenameComputer\RenameComputer.ps1.tag" -Value "Installed"
-    if ($TestMode) { Write-Verbose "Created tag file at $($env:ProgramData)\Microsoft\RenameComputer\RenameComputer.ps1.tag" }
 } catch {
-    Log-Exit "Error: Failed to create or write to the tag file." 1
+    Write-Host "Failed to start transcript logging. Error: $($_.Exception.Message)"
+    Write-Host ""
 }
 
-# Initialization
-$dest = "$($env:ProgramData)\Microsoft\RenameComputer"
-try {
-    if (-not (Test-Path $dest)) {
-        mkdir $dest
-    }
-    Start-Transcript "$dest\RenameComputer.log" -Append
-    if ($TestMode) { Write-Verbose "Initialized log at $dest\RenameComputer.log" }
-} catch {
-    Log-Exit "Error: Failed to initialize the log directory." 1
-}
-
-# Bail out if the prefix doesn't match (if specified)
-if ($Prefix -ne "") {
-    $details = Get-ComputerInfo
-    if ($details.CsName -notlike "$Prefix*") {
-        Log-Exit "Device name doesn't match specified prefix. Prefix=$Prefix ComputerName=$($details.CsName)" 0
-    }
-}
-
-# Detect if the computer is AD or AAD joined
+# Check if AD or AAD joined
 $isAD = $false
 $isAAD = $false
 $tenantID = $null
@@ -127,15 +111,11 @@ try {
     if ($details.CsPartOfDomain) {
         Write-Host "Device is joined to AD domain: $($details.CsDomain)"
         $isAD = $true
-    } else {
-        if (Test-Path "HKLM:/SYSTEM/CurrentControlSet/Control/CloudDomainJoin/JoinInfo") {
-            $subKey = Get-Item "HKLM:/SYSTEM/CurrentControlSet/Control/CloudDomainJoin/JoinInfo"
-            $guids = $subKey.GetSubKeyNames()
-            foreach ($guid in $guids) {
-                $guidSubKey = $subKey.OpenSubKey($guid)
-                $tenantID = $guidSubKey.GetValue("TenantId")
-            }
-        }
+    } elseif (Test-Path "HKLM:/SYSTEM/CurrentControlSet/Control/CloudDomainJoin/JoinInfo") {
+        $subKey = Get-Item "HKLM:/SYSTEM/CurrentControlSet/Control/CloudDomainJoin/JoinInfo"
+        $tenantID = ($subKey.GetSubKeyNames() | ForEach-Object {
+            (Get-ItemProperty "HKLM:/SYSTEM/CurrentControlSet/Control/CloudDomainJoin/JoinInfo\$_").TenantId
+        }) -join ", "
         if ($tenantID) {
             Write-Host "Device is joined to AAD tenant: $tenantID"
             $isAAD = $true
@@ -144,73 +124,46 @@ try {
         }
     }
 } catch {
-    Log-Exit "Error: Failed to detect AD or AAD domain membership." 1
+    Log-Exit "Error: Failed to detect AD or AAD domain membership. $_" 1
+}
+Write-Host ""
+# Resolve the serial number
+$serialNumber = Get-SerialNumber
+$newName = "$serialNumber"
+
+# Enforce naming rules
+if ($newName.Length -gt 63 -or $newName -match '^[0-9]+$') {
+    Log-Exit "Error: Invalid computer name '$newName'. Ensure it follows naming rules." 1
+}
+Write-Host ""
+# Check if renaming is necessary
+$currentName = (Get-ComputerInfo).CsName
+if ($newName -ieq $currentName) {
+    Log-Exit "No need to rename computer, name is already set to $newName" 0
 }
 
-# Check if connectivity to domain is good
-if ($isAD) {
-    try {
-        $dcInfo = [ADSI]"LDAP://RootDSE"
-        if ($null -eq $dcInfo.dnsHostName) {
-            Log-Exit "No connectivity to the domain, unable to rename at this point." 1
-        }
-    } catch {
-        Log-Exit "Error: Failed to check domain connectivity." 1
-    }
+# Handle Test Mode
+if ($TestMode) {
+    Write-Host "Test Mode: The computer would be renamed to '$newName', but no changes will be made."
+    Log-Exit "Test mode complete." 0
 }
 
-# If we're good to go, rename the computer
+# Attempt to rename the computer
 try {
-    $serialNumber = Get-SerialNumber
-
-    if (-not $serialNumber) {
-        Log-Exit "Error: No serial number found." 1
-    }
-
-    if ($serialNumber.Length -gt 13) {
-        $serialNumber = $serialNumber.Substring(0, 13)
-    }
-
-    $newName = "$serialNumber"
-    Write-Host "The new computer name will be: $newName"
-
-    $currentName = (Get-ComputerInfo).CsName
-    if ($newName -ieq $currentName) {
-        Log-Exit "No need to rename computer, name is already set to $newName" 0
-    }
-
     Write-Host "Renaming computer to $newName"
     Rename-Computer -NewName $newName -Force
-    Write-Host "Initiating a restart in 10 minutes."
-    & shutdown.exe /g /t 600 /f /c "Restarting the computer due to a computer name change. Save your work."
+    Write-Host "Rename successful."
+
+    # Skip reboot in Test Mode
+    if (-not $TestMode) {
+        Write-Host "Initiating a restart in 10 minutes."
+        & shutdown.exe /g /t 600 /f /c "Restarting the computer due to a computer name change. Save your work."
+    } else {
+        Write-Host "Test mode active, skipping reboot."
+    }
+
     Log-Exit "Restart initiated." 0
 } catch {
-    Log-Exit "Error: Failed to rename the computer." 1
+    Log-Exit "Error: Failed to rename the computer. $_" 1
 }
-
-# Check and create the scheduled task if necessary
-if (-not $TestMode) {
-    try {
-        $existingTask = Get-ScheduledTask -TaskName "RenameComputer" -ErrorAction SilentlyContinue
-        if ($existingTask -eq $null) {
-            if (-not (Test-Path "$dest\RenameComputer.ps1")) {
-                Copy-Item $PSCommandPath "$dest\RenameComputer.ps1"
-            }
-            $action = New-ScheduledTaskAction -Execute "Powershell.exe" -Argument "-NoProfile -ExecutionPolicy bypass -WindowStyle Hidden -File $dest\RenameComputer.ps1"
-            $timespan = New-Timespan -Minutes 5
-            $triggers = @(
-                New-ScheduledTaskTrigger -Daily -At 9am
-                New-ScheduledTaskTrigger -AtLogOn -RandomDelay $timespan
-                New-ScheduledTaskTrigger -AtStartup -RandomDelay $timespan
-            )
-            Register-ScheduledTask -User SYSTEM -Action $action -Trigger $triggers -TaskName "RenameComputer" -Description "RenameComputer" -Force
-            Write-Host "Scheduled task created."
-        } else {
-            Write-
-
-Host "Scheduled task already exists."
-        }
-    } catch {
-        Log-Exit "Error: Failed to create or check the scheduled task." 1
-    }
-}
+Write-Host ""
