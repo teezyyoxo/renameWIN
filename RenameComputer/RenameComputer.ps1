@@ -1,5 +1,5 @@
 # This script will automatically rename an AD/AAD-bound Windows computer to the machine's serial number based on the following command:
-# MG ON 11/27/24 --> NEED TO PRETTIFY THE OUTPUTS AND ADD VERSIONING INFO (COMMENTED OUT)
+# MG ON 11/27/24 --> OPTIMIZE PRETTIFICATION AND STUFF, ADD CHANGELOG TO SCRIPT (commented out)
 
 [CmdletBinding()]
 Param(
@@ -7,14 +7,15 @@ Param(
     [switch] $TestMode,  # -T for Test Mode
     [Alias("TestFlag")] [switch] $t # Renamed alias for Test Mode
 )
+# Clean your windshield and headlight lenses every now and then.
+cls
 
 # Combine TestMode flags (-t and -T)
 $TestMode = $TestMode -or $t
 Write-Host ""
 # Heads up - test mode!
 if ($TestMode) {
-    Write-Warning "***SCRIPT IS BEING EXECUTED IN TEST MODE.***"
-    Write-Warning "No changes will be applied."
+    Write-Warning "***SCRIPT IS BEING EXECUTED IN TEST MODE. NO CHANGES WILL BE APPLIED.***"
  } else {} # Carry on, my wayward son...
 Write-Host ""
 
@@ -22,17 +23,24 @@ Write-Host ""
 function Log-Exit {
     param([string]$message, [int]$exitCode = 0)
     Write-Host $message
-    Stop-Transcript
+
+    # Stop transcript only if it's started
+    if ($PSCmdlet.MyInvocation.BoundParameters["Transcript"] -and $Transcript) {
+        Stop-Transcript
+    }
+
     Exit $exitCode
 }
 
 # Opening credits. Star Wars???
-Write-Host "winRename v1.6"
+Write-Host "winRename v1.7 by MG"
+Write-Host ""
 Write-Host ""
 
-Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
+Write-Host "Based on version 1.3 of Michael Niehaus' RenameComputer.ps1 script."
 Write-Host "EXCELLENT write-up on it on his blog."
 Write-Host "https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
+Write-Host "---------------------------------------------------"
 Write-Host ""
 
 # Function to retrieve and validate the serial number
@@ -65,20 +73,39 @@ function Get-SerialNumber {
     }
 }
 
-# Resolve the logged-on user's temp directory and initialize transcript
-$LoggedOnUserTemp = Get-LoggedOnUserTemp
-try {
-    $LogFilePath = "C:\Windows\Temp\RenameComputer.log"
-    if ($LoggedOnUserTemp -ne "C:\Windows\Temp") {
-        $LogFilePath = Join-Path -Path $LoggedOnUserTemp -ChildPath "RenameComputer.log"
+# Function to retrieve the user's temp directory
+function Get-LoggedOnUserTemp {
+    try {
+        $LoggedOnUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
+        if ($LoggedOnUser -and $LoggedOnUser -match "\\") {
+            $UserName = $LoggedOnUser.Split("\")[-1]
+            $UserProfilePath = Join-Path -Path "C:\Users" -ChildPath $UserName
+            $TempPath = Join-Path -Path $UserProfilePath -ChildPath "AppData\Local\Temp"
+            if (Test-Path $TempPath) {
+                return $TempPath
+            } else {
+                throw "Temp path does not exist for user: $UserName"
+            }
+        } else {
+            if ($TestMode) {
+                Write-Warning "Running script as SYSTEM user."
+                Write-Warning "Using C:\Windows\Temp for logs."
+            }
+            # Always log to the transcript
+            Write-Warning "Running script as SYSTEM user."
+            Write-Warning "Using C:\Windows\Temp for logs."
+            return "C:\Windows\Temp"
+        }
+    } catch {
+        if ($TestMode) {
+            Write-Warning "Error resolving user's temp directory: $($_.Exception.Message)"
+        }
+        Write-Warning "Error resolving user's temp directory: $($_.Exception.Message)"
+        return "C:\Windows\Temp"
     }
-    Start-Transcript -Path $LogFilePath -Append
-} catch {
-    Write-Host "Failed to start transcript logging. Error: $($_.Exception.Message)"
-    Write-Host ""
 }
 
-# Check if AD or AAD joined
+# Check if AD or Hybrid/AAD joined
 $isAD = $false
 $isAAD = $false
 $tenantID = $null
@@ -113,8 +140,6 @@ if ($newName.Length -gt 63 -or $newName -match '^[0-9]+$') {
     Log-Exit "Error: Invalid computer name '$newName'. Ensure it follows naming rules." 1
 }
 
-Write-Host ""
-
 # Check if renaming is necessary
 $currentName = (Get-ComputerInfo).CsName
 
@@ -134,35 +159,25 @@ if ($newName -ieq $currentName) {
 if ($TestMode) {
     Write-Host "***SCRIPT WAS RUN IN TEST MODE.***"
     Write-Host "No changes have been applied."
-    Log-Exit "Exiting." 0
+    Log-Exit "Exiting."
 }
 
-# Function to retrieve the logged-on user's temp directory
-function Get-LoggedOnUserTemp {
-    try {
-        $LoggedOnUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
-        if ($LoggedOnUser -and $LoggedOnUser -match "\\") {
-            $UserName = $LoggedOnUser.Split("\")[-1]
-            $UserProfilePath = Join-Path -Path "C:\Users" -ChildPath $UserName
-            $TempPath = Join-Path -Path $UserProfilePath -ChildPath "AppData\Local\Temp"
-            if (Test-Path $TempPath) {
-                return $TempPath
-            } else {
-                throw "Temp path does not exist for user: $UserName"
-            }
-        } else {
-            Write-Warning "Running script as SYSTEM user and thus using C:\Windows\Temp for logs."
-            return "C:\Windows\Temp"
-        }
-    } catch {
-        Write-Warning "Error resolving logged-on user's temp directory: $($_.Exception.Message)"
-        return "C:\Windows\Temp"
+# Resolve the logged-on user's temp directory and initialize transcript
+$LoggedOnUserTemp = Get-LoggedOnUserTemp
+try {
+    $LogFilePath = "C:\Windows\Temp\RenameComputer.log"
+    if ($LoggedOnUserTemp -ne "C:\Windows\Temp") {
+        $LogFilePath = Join-Path -Path $LoggedOnUserTemp -ChildPath "RenameComputer.log"
     }
+    Start-Transcript -Path $LogFilePath -Append
+} catch {
+    Write-Host "Failed to start transcript logging. Error: $($_.Exception.Message)"
+    Write-Host ""
 }
 
 # Attempt to rename the computer
 try {
-    Write-Host "Renaming computer to $newName"
+    Write-Host "Renaming computer to $newName."
     Rename-Computer -NewName $newName -Force
     Write-Host "Rename successful."
 
