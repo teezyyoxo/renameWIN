@@ -78,7 +78,7 @@ if ($TestMode) {
 
 # Opening credits. Star Wars???
 Write-Host ""
-Write-Host "RenameComputer v1.4"
+Write-Host "RenameComputer v1.5"
 Write-Host "Based on version 1.3 (latest) of Michael Niehaus' RenameComputer.ps1 script."
 Write-Host "EXCELLENT write-up on it on his blog, here: https://oofhours.com/2020/05/19/renaming-autopilot-deployed-hybrid-azure-ad-join-devices/"
 Write-Host ""
