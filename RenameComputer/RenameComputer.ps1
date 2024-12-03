@@ -73,7 +73,7 @@ function Get-SerialNumber {
     }
 }
 
-# Function to retrieve the user's temp directory
+# Function to retrieve the user's temp directory and print logging.
 function Get-LoggedOnUserTemp {
     try {
         $LoggedOnUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
@@ -183,8 +183,8 @@ try {
 
     # Skip reboot in Test Mode
     if (-not $TestMode) {
-        Write-Host "Initiating a restart in 10 minutes."
-        & shutdown.exe /g /t 600 /f /c "Restarting the computer due to a computer name change. Save your work."
+        Write-Host "Initiating a restart in 30 seconds."
+        & shutdown.exe /g /t 30 /f /c "Restarting the computer due to a computer name change. Save your work."
     } else {
         Write-Host "Test mode active, skipping reboot."
     }
